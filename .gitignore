@@ -1,0 +1,42 @@
+# Environment and secrets
+.env
+.env.local
+.env.*.local
+
+# Compiled binary
+sonarsweep
+sonarsweep.exe
+sonarsweep-arm64
+sonarsweep-amd64
+
+# Build artifacts
+dist/
+build/
+*.exe
+*.dmg
+*.tar.gz
+*.zip
+
+# CSV output (generated at runtime)
+*.csv
+projects/
+people-*/
+
+# IDE and OS files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Go
+go.sum
+
+# Node (if any JS tooling is added later)
+node_modules/
+
+# Temporary files
+*.tmp
+*.log

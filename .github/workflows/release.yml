@@ -174,11 +174,10 @@ jobs:
           cd homebrew-tap
 
           sed -i \
-            -e "s|sha256-darwin-arm64 = .*|sha256-darwin-arm64 = $SHA_DARWIN_ARM64|" \
-            -e "s|sha256-darwin-amd64 = .*|sha256-darwin-amd64 = $SHA_DARWIN_AMD64|" \
-            -e "s|sha256-linux-amd64 = .*|sha256-linux-amd64 = $SHA_LINUX|" \
-            -e "s|sha256-windows-amd64 = .*|sha256-windows-amd64 = $SHA_WINDOWS|" \
-            -e "s|version = \".*\"|version = \"${VERSION#v}\"|" \
+            -e "s|SHA256_DARWIN_ARM64_PLACEHOLDER|$SHA_DARWIN_ARM64|" \
+            -e "s|SHA256_DARWIN_AMD64_PLACEHOLDER|$SHA_DARWIN_AMD64|" \
+            -e "s|SHA256_LINUX_AMD64_PLACEHOLDER|$SHA_LINUX|" \
+            -e "s|VERSION_PLACEHOLDER|${VERSION#v}|g" \
             sonarsweep.rb
 
           git config user.name "GitHub Actions"

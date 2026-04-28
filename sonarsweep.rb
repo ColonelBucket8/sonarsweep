@@ -6,17 +6,17 @@ class Sonarsweep < Formula
   on_macos do
     on_arm do
       url "https://github.com/ariffrahimin/sonarsweep/releases/download/vVERSION_PLACEHOLDER/sonarsweep-darwin-arm64.tar.gz"
-      sha256 "sha256-darwin-arm64 = CHECKSUM_PLACEHOLDER"
+      sha256 "SHA256_DARWIN_ARM64_PLACEHOLDER"
     end
     on_intel do
       url "https://github.com/ariffrahimin/sonarsweep/releases/download/vVERSION_PLACEHOLDER/sonarsweep-darwin-amd64.tar.gz"
-      sha256 "sha256-darwin-amd64 = CHECKSUM_PLACEHOLDER"
+      sha256 "SHA256_DARWIN_AMD64_PLACEHOLDER"
     end
   end
 
   on_linux do
     url "https://github.com/ariffrahimin/sonarsweep/releases/download/vVERSION_PLACEHOLDER/sonarsweep-linux-amd64.tar.gz"
-    sha256 "sha256-linux-amd64 = CHECKSUM_PLACEHOLDER"
+    sha256 "SHA256_LINUX_AMD64_PLACEHOLDER"
   end
 
   def install

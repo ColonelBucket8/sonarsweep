@@ -30,23 +30,18 @@
 
 ## Installation
 
-### Option 1: Download Binary (Fastest)
+### Option 1: Install Script (Fastest)
 
-Download the pre-built binary for your platform from the [Releases page](https://github.com/ariffrahimin/sonarsweep/releases):
+The install script automatically downloads the correct binary for your system and adds it to your PATH.
 
+**macOS and Linux:**
 ```bash
-# macOS (Apple Silicon)
-curl -L https://github.com/ariffrahimin/sonarsweep/releases/latest/download/sonarsweep-darwin-arm64.tar.gz | tar -xz
+curl -sSL https://raw.githubusercontent.com/ariffrahimin/sonarsweep/main/install.sh | bash
+```
 
-# macOS (Intel)
-curl -L https://github.com/ariffrahimin/sonarsweep/releases/latest/download/sonarsweep-darwin-amd64.tar.gz | tar -xz
-
-# Linux
-curl -L https://github.com/ariffrahimin/sonarsweep/releases/latest/download/sonarsweep-linux-amd64.tar.gz | tar -xz
-
-# Windows (PowerShell)
-irm https://github.com/ariffrahimin/sonarsweep/releases/latest/download/sonarsweep-windows-amd64.zip -o sonarsweep.zip
-Expand-Archive sonarsweep.zip -DestinationPath .
+**Windows (PowerShell):**
+```powershell
+irm https://raw.githubusercontent.com/ariffrahimin/sonarsweep/main/install.ps1 | iex
 ```
 
 ### Option 2: Homebrew (Recommended for macOS/Linux)

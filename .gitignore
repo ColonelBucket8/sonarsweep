@@ -37,6 +37,9 @@ go.sum
 # Node (if any JS tooling is added later)
 node_modules/
 
+# Configuration files
+sonarsweep.json
+
 # Temporary files
 *.tmp
 *.log

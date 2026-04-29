@@ -158,7 +158,6 @@ jobs:
         env:
           VERSION: ${{ github.ref_name }}
         run: |
-          set -x
           ARTIFACTS_DIR="${GITHUB_WORKSPACE}/artifacts"
 
           SONAR_DARWIN_ARM64=$(find "$ARTIFACTS_DIR" -name "sonarsweep-darwin-arm64.tar.gz" -type f | head -1)
@@ -185,6 +184,9 @@ jobs:
 
           cd homebrew-tap
 
+          echo "=== Contents of sonarsweep.rb before sed ==="
+          cat sonarsweep.rb
+
           sed -i \
             -e "s|SHA256_DARWIN_ARM64_PLACEHOLDER|$SHA_DARWIN_ARM64|" \
             -e "s|SHA256_DARWIN_AMD64_PLACEHOLDER|$SHA_DARWIN_AMD64|" \
@@ -192,8 +194,17 @@ jobs:
             -e "s|VERSION_PLACEHOLDER|${VERSION#v}|g" \
             sonarsweep.rb
 
+          echo "=== Contents of sonarsweep.rb after sed ==="
+          cat sonarsweep.rb
+
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
           git add sonarsweep.rb
-          git commit -m "Release $VERSION"
+
+          if git diff --cached --quiet; then
+            echo "No changes to commit (file was already up to date)"
+            exit 0
+          fi
+
+          git commit -m "Release $VERSION" || { echo "Git commit failed"; exit 1; }
           git push

@@ -138,3 +138,120 @@ func TestDefaultConfig_HasCorrectSoftwareQualities(t *testing.T) {
 		}
 	}
 }
+
+func TestConfig_WithToken(t *testing.T) {
+	tmpDir := t.TempDir()
+	tmpFile := filepath.Join(tmpDir, "sonarsweep.json")
+
+	testConfig := Config{
+		SonarURL:          "http://test.example.com:9000",
+		Projects:          []string{"test-project"},
+		SoftwareQualities: []string{"RELIABILITY", "SECURITY"},
+		Token:             "squ_test_token_12345",
+	}
+
+	data, _ := json.Marshal(testConfig)
+	os.WriteFile(tmpFile, data, 0644)
+
+	originalConfigPath := configPath
+	configPath = tmpFile
+	defer func() { configPath = originalConfigPath }()
+
+	cfg := loadConfig()
+
+	if cfg.Token != testConfig.Token {
+		t.Errorf("Expected Token %s, got %s", testConfig.Token, cfg.Token)
+	}
+}
+
+func TestSaveConfig_AndLoadConfig_RoundTripWithToken(t *testing.T) {
+	tmpDir := t.TempDir()
+	tmpFile := filepath.Join(tmpDir, "sonarsweep.json")
+
+	originalConfigPath := configPath
+	configPath = tmpFile
+	defer func() { configPath = originalConfigPath }()
+
+	original := Config{
+		SonarURL:          "http://roundtrip.test:9000",
+		Projects:          []string{"project-a"},
+		SoftwareQualities: []string{"MAINTAINABILITY"},
+		Token:             "squ_secret_token_abc123",
+	}
+
+	saveConfig(original)
+
+	loaded := loadConfig()
+
+	if loaded.Token != original.Token {
+		t.Errorf("Token mismatch after round-trip: got %s, want %s", loaded.Token, original.Token)
+	}
+}
+
+func TestConfig_EmptyTokenOmitsFromJSON(t *testing.T) {
+	tmpDir := t.TempDir()
+	tmpFile := filepath.Join(tmpDir, "sonarsweep.json")
+
+	testConfig := Config{
+		SonarURL:          "http://test.example.com:9000",
+		Projects:          []string{"test-project"},
+		SoftwareQualities: []string{"RELIABILITY"},
+		Token:             "",
+	}
+
+	data, _ := json.Marshal(testConfig)
+	os.WriteFile(tmpFile, data, 0644)
+
+	originalConfigPath := configPath
+	configPath = tmpFile
+	defer func() { configPath = originalConfigPath }()
+
+	cfg := loadConfig()
+
+	if cfg.Token != "" {
+		t.Errorf("Expected empty Token, got %s", cfg.Token)
+	}
+}
+
+func TestIssue_SeverityMapping(t *testing.T) {
+	issue := Issue{
+		Key:      "test-key-123",
+		Rule:     "java:S1234",
+		Severity: "HIGH",
+		Component: "test-project:src/Main.java",
+		Line:     42,
+		Message:  "Test issue message",
+		Status:   "OPEN",
+	}
+
+	if issue.Severity != "HIGH" {
+		t.Errorf("Expected Severity HIGH, got %s", issue.Severity)
+	}
+	if issue.Line != 42 {
+		t.Errorf("Expected Line 42, got %d", issue.Line)
+	}
+}
+
+func TestIssue_Impacts(t *testing.T) {
+	issue := Issue{
+		Key:      "test-key-456",
+		Rule:     "java:S5678",
+		Severity: "MEDIUM",
+		Component: "test-project:src/Test.java",
+		Impacts: []struct {
+			SoftwareQuality string `json:"softwareQuality"`
+			Severity        string `json:"severity"`
+		}{
+			{SoftwareQuality: "MAINTAINABILITY", Severity: "MEDIUM"},
+			{SoftwareQuality: "RELIABILITY", Severity: "LOW"},
+		},
+	}
+
+	if len(issue.Impacts) != 2 {
+		t.Errorf("Expected 2 impacts, got %d", len(issue.Impacts))
+	}
+
+	if issue.Impacts[0].SoftwareQuality != "MAINTAINABILITY" {
+		t.Errorf("Expected first impact MAINTAINABILITY, got %s", issue.Impacts[0].SoftwareQuality)
+	}
+}

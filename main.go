@@ -653,8 +653,17 @@ func (m *model) buildSummaryTable() {
 
 func exportToCSV(issues []Issue, projectKey string) string {
 	dateStr := time.Now().Format("20060102")
-	os.MkdirAll(projectKey, os.ModePerm)
-	outputFilename := filepath.Join(projectKey, fmt.Sprintf("sonarqube_issues_%s.csv", dateStr))
+
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		homeDir = "."
+	}
+
+	downloadsDir := filepath.Join(homeDir, "Downloads")
+	projectDir := filepath.Join(downloadsDir, projectKey)
+
+	os.MkdirAll(projectDir, os.ModePerm)
+	outputFilename := filepath.Join(projectDir, fmt.Sprintf("sonarqube_issues_%s.csv", dateStr))
 
 	file, err := os.Create(outputFilename)
 	if err != nil {

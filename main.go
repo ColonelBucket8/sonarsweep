@@ -183,6 +183,13 @@ var (
 
 	unselectedActionStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("241"))
+
+	dangerActionStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("9")).
+			Bold(true).
+			Background(lipgloss.Color("235")).
+			Padding(0, 1).
+			MarginRight(1)
 )
 
 type item string
@@ -190,8 +197,11 @@ type item string
 func (i item) FilterValue() string { return string(i) }
 func (i item) Title() string       { return string(i) }
 func (i item) Description() string {
-	if i == "+ Add New Project" {
+	switch i {
+	case "+ Add New Project":
 		return "Add a new project key"
+	case "- Remove Project":
+		return "Remove an existing project"
 	}
 	return "Fetch issues for this project"
 }
@@ -208,6 +218,7 @@ const (
 	stateFetching
 	stateDone
 	statePrompt
+	stateRemoveProject
 	stateError
 )
 
@@ -337,6 +348,7 @@ type model struct {
 
 	// New Project
 	newProjectInput textinput.Model
+	newProjectError string
 
 	// Token
 	tokenInput textinput.Model
@@ -346,6 +358,9 @@ type model struct {
 	projectList list.Model
 	projectKey  string
 
+	// Remove Project
+	removeProjectCursor int
+
 	// Qualities
 	qualitiesCursor   int
 	selectedQualities map[int]struct{}
@@ -354,6 +369,9 @@ type model struct {
 	// Code Period
 	codePeriodCursor int
 	isNewCodePeriod  bool
+
+	// Prompt
+	promptCursor int
 
 	// Fetching
 	spinner  spinner.Model
@@ -381,7 +399,11 @@ func initialModel() model {
 	for _, p := range config.Projects {
 		availableProjects = append(availableProjects, item(p))
 	}
-	availableProjects = append(availableProjects, item("+ Add New Project"))
+	if len(config.Projects) > 0 {
+		availableProjects = append(availableProjects, item("- Remove Project"), item("+ Add New Project"))
+	} else {
+		availableProjects = append(availableProjects, item("+ Add New Project"))
+	}
 
 	state := stateProject
 	if config.SonarURL == "" {
@@ -497,10 +519,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case stateNewProject:
 			if msg.Type == tea.KeyEnter {
 				proj := m.newProjectInput.Value()
-				if strings.TrimSpace(proj) != "" {
+				proj = strings.TrimSpace(proj)
+				if proj != "" {
+					for _, existingProject := range m.config.Projects {
+						if existingProject == proj {
+							m.newProjectError = "Project already exists!"
+							return m, nil
+						}
+					}
+					m.newProjectError = ""
 					m.config.Projects = append(m.config.Projects, proj)
 					saveConfig(m.config)
-					availableProjects = append(availableProjects, item(proj))
+
+					last := len(availableProjects) - 2
+					availableProjects = availableProjects[:last]
+					availableProjects = append(availableProjects, item(proj), item("- Remove Project"), item("+ Add New Project"))
 					m.projectList.SetItems(availableProjects)
 
 					if m.token == "" {
@@ -528,6 +561,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if i, ok := m.projectList.SelectedItem().(item); ok {
 				if i == "+ Add New Project" {
 					m.state = stateNewProject
+					return m, nil
+				}
+				if i == "- Remove Project" {
+					m.removeProjectCursor = 0
+					m.state = stateRemoveProject
 					return m, nil
 				}
 				m.projectKey = string(i)
@@ -588,6 +626,42 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Batch(m.spinner.Tick, fetchIssuesCmd(m.projectKey, m.token, m.softwareQualities, m.isNewCodePeriod))
 			}
 
+		case stateRemoveProject:
+			switch msg.String() {
+			case "up", "k":
+				if m.removeProjectCursor > 0 {
+					m.removeProjectCursor--
+				}
+			case "down", "j":
+				if m.removeProjectCursor < len(m.config.Projects)-1 {
+					m.removeProjectCursor++
+				}
+			case "enter":
+				if len(m.config.Projects) > 0 {
+					m.config.Projects = append(m.config.Projects[:m.removeProjectCursor], m.config.Projects[m.removeProjectCursor+1:]...)
+					saveConfig(m.config)
+
+					availableProjects = []list.Item{}
+					for _, p := range m.config.Projects {
+						availableProjects = append(availableProjects, item(p))
+					}
+					if len(m.config.Projects) > 0 {
+						availableProjects = append(availableProjects, item("- Remove Project"), item("+ Add New Project"))
+					} else {
+						availableProjects = append(availableProjects, item("+ Add New Project"))
+					}
+					m.projectList.SetItems(availableProjects)
+
+					m.removeProjectCursor = 0
+					m.state = stateProject
+				}
+				return m, nil
+			case "esc":
+				m.removeProjectCursor = 0
+				m.state = stateProject
+				return m, nil
+			}
+
 		case stateDone, stateError:
 			if msg.String() == "q" || msg.Type == tea.KeyCtrlC || msg.Type == tea.KeyEsc || msg.Type == tea.KeyEnter {
 				return m, tea.Quit
@@ -637,19 +711,33 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case statePrompt:
 		switch msg := msg.(type) {
 		case tea.KeyMsg:
-			if msg.Type == tea.KeyEnter || msg.String() == "y" || msg.String() == "Y" {
-				m.projectKey = ""
-				m.softwareQualities = []string{}
-				m.selectedQualities = make(map[int]struct{})
-				m.issues = nil
-				m.qualitiesCursor = 0
-				m.codePeriodCursor = 0
-				m.isNewCodePeriod = true
-				m.savedFile = ""
-				m.state = stateProject
-				return m, nil
-			}
-			if msg.String() == "n" || msg.String() == "N" || msg.String() == "q" {
+			switch msg.String() {
+			case "up", "k":
+				if m.promptCursor > 0 {
+					m.promptCursor--
+				}
+			case "down", "j":
+				if m.promptCursor < 1 {
+					m.promptCursor++
+				}
+			case "enter":
+				if m.promptCursor == 0 {
+					m.projectKey = ""
+					m.softwareQualities = []string{}
+					m.selectedQualities = make(map[int]struct{})
+					m.issues = nil
+					m.qualitiesCursor = 0
+					m.codePeriodCursor = 0
+					m.isNewCodePeriod = true
+					m.savedFile = ""
+					m.promptCursor = 0
+					m.state = stateProject
+					return m, nil
+				}
+				if m.promptCursor == 1 {
+					return m, tea.Quit
+				}
+			case "q":
 				return m, tea.Quit
 			}
 		}
@@ -795,6 +883,10 @@ func (m model) View() string {
 		b.WriteString(subtextStyle.Render("Enter the SonarQube Project Key:"))
 		b.WriteString("\n\n")
 		b.WriteString(m.newProjectInput.View())
+		if m.newProjectError != "" {
+			b.WriteString("\n")
+			b.WriteString(errorStyle.Render(m.newProjectError))
+		}
 		b.WriteString("\n\n")
 		b.WriteString(helpStyle.Render("(Press Enter to continue, Esc to quit)"))
 
@@ -877,6 +969,28 @@ func (m model) View() string {
 		b.WriteString("\n")
 		b.WriteString(helpStyle.Render("↑/↓: Navigate • Enter: Confirm • Esc: Quit"))
 
+	case stateRemoveProject:
+		b.WriteString(dangerActionStyle.Render("Remove Project"))
+		b.WriteString("\n")
+		b.WriteString(subtextStyle.Render("Select a project to remove and press Enter"))
+		b.WriteString("\n\n")
+
+		for i, proj := range m.config.Projects {
+			cursor := "  "
+			if m.removeProjectCursor == i {
+				cursor = cursorStyle.Render("> ")
+			}
+
+			text := proj
+			if m.removeProjectCursor == i {
+				text = dangerActionStyle.Render(proj)
+			}
+			b.WriteString(fmt.Sprintf("%s%s\n", cursor, text))
+		}
+
+		b.WriteString("\n")
+		b.WriteString(helpStyle.Render("↑/↓: Navigate • Enter: Remove • Esc: Cancel"))
+
 	case stateFetching:
 		b.WriteString(subtitleStyle.Render("Fetching Issues..."))
 		b.WriteString("\n\n")
@@ -905,23 +1019,33 @@ func (m model) View() string {
 		}
 
 	case statePrompt:
-		b.WriteString(titleStyle.Render("Export Successful!"))
-		b.WriteString("\n\n")
+		b.WriteString(subtitleStyle.Render("Export Successful!"))
+		b.WriteString("\n")
 		if m.savedFile != "" {
-			b.WriteString(successStyle.Render(fmt.Sprintf("✔  Data saved to:\n    %s", m.savedFile)))
+			b.WriteString(subtextStyle.Render(fmt.Sprintf("Data saved to: %s", m.savedFile)))
 		} else {
-			b.WriteString(errorStyle.Render("✘  Failed to save the output file."))
+			b.WriteString(errorStyle.Render("Failed to save the output file."))
 		}
 		b.WriteString("\n\n")
-		b.WriteString(promptStyle.Render("What would you like to do next?"))
+		b.WriteString(subtextStyle.Render("What would you like to do next?"))
 		b.WriteString("\n\n")
-		b.WriteString("  ")
-		b.WriteString(selectedActionStyle.Render("[ Y ]  Export another project"))
+
+		choices := []string{"Export another project", "Exit SonarSweep"}
+		for i, choice := range choices {
+			cursor := "  "
+			if m.promptCursor == i {
+				cursor = cursorStyle.Render("> ")
+			}
+
+			text := choice
+			if m.promptCursor == i {
+				text = highlightStyle.Render(text)
+			}
+			b.WriteString(fmt.Sprintf("%s%s\n", cursor, text))
+		}
+
 		b.WriteString("\n")
-		b.WriteString("  ")
-		b.WriteString(unselectedActionStyle.Render("[ N ]  Exit SonarSweep"))
-		b.WriteString("\n\n")
-		b.WriteString(subtextStyle.Render("Press Enter to continue or q to exit"))
+		b.WriteString(helpStyle.Render("↑/↓: Navigate • Enter: Confirm • q: Quit"))
 	}
 	if m.state == stateError {
 		b.WriteString(errorStyle.Render("Error occurred"))
@@ -1056,7 +1180,11 @@ func main() {
 	for _, p := range config.Projects {
 		availableProjects = append(availableProjects, item(p))
 	}
-	availableProjects = append(availableProjects, item("+ Add New Project"))
+	if len(config.Projects) > 0 {
+		availableProjects = append(availableProjects, item("- Remove Project"), item("+ Add New Project"))
+	} else {
+		availableProjects = append(availableProjects, item("+ Add New Project"))
+	}
 
 	state := stateProject
 	if config.SonarURL == "" {

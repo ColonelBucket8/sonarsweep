@@ -21,7 +21,7 @@ import (
 	"github.com/joho/godotenv"
 )
 
-const VERSION = "1.0.0"
+var VERSION = "dev"
 
 var configPath string
 
@@ -61,7 +61,7 @@ func loadConfig() Config {
 	}
 	defer file.Close()
 	var config Config
-if err := json.NewDecoder(file).Decode(&config); err != nil {
+	if err := json.NewDecoder(file).Decode(&config); err != nil {
 		return defaultConfig
 	}
 	if len(config.SoftwareQualities) == 0 {
@@ -184,6 +184,7 @@ const (
 	stateToken
 	stateProject
 	stateQualities
+	stateCodePeriod
 	stateFetching
 	stateDone
 	stateError
@@ -223,7 +224,7 @@ type issuesFetchedMsg struct {
 	err    error
 }
 
-func fetchIssuesCmd(projectKey, token string, softwareQualities []string) tea.Cmd {
+func fetchIssuesCmd(projectKey, token string, softwareQualities []string, isNewCodePeriod bool) tea.Cmd {
 	return func() tea.Msg {
 		var allIssues []Issue
 		client := &http.Client{Timeout: 15 * time.Second}
@@ -242,7 +243,9 @@ func fetchIssuesCmd(projectKey, token string, softwareQualities []string) tea.Cm
 			q.Add("statuses", "OPEN,CONFIRMED")
 			q.Add("impactSeverities", "BLOCKER,HIGH,MEDIUM,LOW")
 			q.Add("impactSoftwareQualities", strings.Join(softwareQualities, ","))
-			q.Add("inNewCodePeriod", "true")
+			if isNewCodePeriod {
+				q.Add("inNewCodePeriod", "true")
+			}
 			q.Add("p", strconv.Itoa(p))
 			q.Add("ps", strconv.Itoa(ps))
 			req.URL.RawQuery = q.Encode()
@@ -327,6 +330,10 @@ type model struct {
 	selectedQualities map[int]struct{}
 	softwareQualities []string
 
+	// Code Period
+	codePeriodCursor int
+	isNewCodePeriod  bool
+
 	// Fetching
 	spinner  spinner.Model
 	fetchErr error
@@ -408,6 +415,7 @@ func initialModel() model {
 		newProjectInput:   uiProj,
 		projectList:       pl,
 		selectedQualities: make(map[int]struct{}),
+		isNewCodePeriod:   true,
 		spinner:           s,
 	}
 }
@@ -527,9 +535,25 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					for k := range m.selectedQualities {
 						m.softwareQualities = append(m.softwareQualities, availableSoftwareQualities[k])
 					}
-					m.state = stateFetching
-					return m, tea.Batch(m.spinner.Tick, fetchIssuesCmd(m.projectKey, m.token, m.softwareQualities))
+					m.state = stateCodePeriod
+					return m, nil
 				}
+			}
+
+		case stateCodePeriod:
+			switch msg.String() {
+			case "up", "k":
+				if m.codePeriodCursor > 0 {
+					m.codePeriodCursor--
+				}
+			case "down", "j":
+				if m.codePeriodCursor < 1 {
+					m.codePeriodCursor++
+				}
+			case "enter":
+				m.isNewCodePeriod = m.codePeriodCursor == 0
+				m.state = stateFetching
+				return m, tea.Batch(m.spinner.Tick, fetchIssuesCmd(m.projectKey, m.token, m.softwareQualities, m.isNewCodePeriod))
 			}
 
 		case stateDone, stateError:
@@ -768,6 +792,29 @@ func (m model) View() string {
 
 		b.WriteString("\n")
 		b.WriteString(helpStyle.Render("↑/↓: Navigate • Space: Toggle • Enter: Confirm • Esc: Quit"))
+
+	case stateCodePeriod:
+		b.WriteString(subtitleStyle.Render("Select Code Period"))
+		b.WriteString("\n")
+		b.WriteString(subtextStyle.Render("Up/Down to navigate, Enter to confirm"))
+		b.WriteString("\n\n")
+
+		choices := []string{"New Code (Default)", "Overall Code"}
+		for i, choice := range choices {
+			cursor := "  "
+			if m.codePeriodCursor == i {
+				cursor = cursorStyle.Render("> ")
+			}
+
+			text := choice
+			if m.codePeriodCursor == i {
+				text = highlightStyle.Render(text)
+			}
+			b.WriteString(fmt.Sprintf("%s%s\n", cursor, text))
+		}
+
+		b.WriteString("\n")
+		b.WriteString(helpStyle.Render("↑/↓: Navigate • Enter: Confirm • Esc: Quit"))
 
 	case stateFetching:
 		b.WriteString(subtitleStyle.Render("Fetching Issues..."))

@@ -1,4 +1,4 @@
-module sonarqube-report
+module github.com/ariffrahimin/sonarsweep
 
 go 1.26.2
 

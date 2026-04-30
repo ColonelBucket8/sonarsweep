@@ -557,8 +557,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.config.Projects = append(m.config.Projects, proj)
 					saveConfig(m.config)
 
-					last := len(availableProjects) - 2
-					availableProjects = availableProjects[:last]
+					last := len(availableProjects) - 1
+					if last >= 0 {
+						availableProjects = availableProjects[:last]
+					}
 					availableProjects = append(availableProjects, item(proj), item("- Remove Project"), item("+ Add New Project"))
 					m.projectList.SetItems(availableProjects)
 

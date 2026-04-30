@@ -55,21 +55,25 @@ go build -o sonarsweep main.go
 
 ### Step 1: Set up your SonarQube Token
 
-Create a `.env` file in the same directory as `sonarsweep`:
-
-```bash
-USER_TOKEN=your_sonarqube_token_here
-```
+Create a User Token in Sonarqube and hold it when launching the CLI
 
 > **Note:** Your token must have access to the SonarQube projects you want to fetch. Generate one from SonarQube → My Account → Security.
 
 ### Step 2: Run SonarSweep
 
+From curl or homebrew
+
+```bash
+sonarsweep
+```
+---
+From the build
+
 ```bash
 ./sonarsweep
 ```
 
-On the first run, SonarSweep will ask for your SonarQube URL and Project Key. After that, it remembers your settings.
+On the first run, SonarSweep will ask for your Token, SonarQube URL and Project Key. After that, it remembers your settings.
 
 ### How to get project key
 

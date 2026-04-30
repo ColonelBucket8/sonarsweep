@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -46,6 +47,25 @@ var defaultConfig = Config{
 		"SECURITY",
 		"MAINTAINABILITY",
 	},
+}
+
+func isValidURL(s string) bool {
+	s = strings.TrimRight(s, "/")
+	if s == "" {
+		return false
+	}
+
+	u, err := url.Parse(s)
+	if err != nil {
+		return false
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return false
+	}
+	if u.Host == "" {
+		return false
+	}
+	return true
 }
 
 func loadConfig() Config {
@@ -345,6 +365,7 @@ type model struct {
 
 	// URL
 	urlInput textinput.Model
+	urlError string
 
 	// New Project
 	newProjectInput textinput.Model
@@ -499,20 +520,25 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch m.state {
 		case stateURL:
 			if msg.Type == tea.KeyEnter {
-				url := m.urlInput.Value()
-				if strings.TrimSpace(url) != "" {
-					SONAR_URL = url
-					m.config.SonarURL = url
-					saveConfig(m.config)
-
-					if len(m.config.Projects) == 0 {
-						m.state = stateNewProject
-					} else if m.token == "" {
-						m.state = stateToken
-					} else {
-						m.state = stateProject
-					}
+				url := strings.TrimSpace(m.urlInput.Value())
+				url = strings.TrimRight(url, "/")
+				if !isValidURL(url) {
+					m.urlError = "Invalid URL. Must start with http:// or https:// and have a valid host"
+					return m, nil
 				}
+				m.urlError = ""
+				SONAR_URL = url
+				m.config.SonarURL = url
+				saveConfig(m.config)
+
+				if len(m.config.Projects) == 0 {
+					m.state = stateNewProject
+				} else if m.token == "" {
+					m.state = stateToken
+				} else {
+					m.state = stateProject
+				}
+
 				return m, nil
 			}
 
@@ -874,6 +900,10 @@ func (m model) View() string {
 		b.WriteString(subtextStyle.Render("Enter your SonarQube URL (e.g., http://localhost:9000):"))
 		b.WriteString("\n\n")
 		b.WriteString(m.urlInput.View())
+		if m.urlError != "" {
+			b.WriteString("\n")
+			b.WriteString(errorStyle.Render(m.urlError))
+		}
 		b.WriteString("\n\n")
 		b.WriteString(helpStyle.Render("(Press Enter to continue, Esc to quit)"))
 

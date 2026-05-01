@@ -1,6 +1,6 @@
 # SonarSweep
 
-![SonarSweep Logo](images/logo.png)
+![SonarSweep Logo](images/logo-tiny.png)
 
 ### Fetch SonarQube issues to clean, readable CSV files — beautifully
 

@@ -87,7 +87,7 @@ func TestSaveConfig_AndLoadConfig_RoundTrip(t *testing.T) {
 		SoftwareQualities: []string{"MAINTAINABILITY"},
 	}
 
-	saveConfig(original)
+	_ = saveConfig(original)
 
 	loaded := loadConfig()
 
@@ -119,7 +119,7 @@ func TestSaveConfig_CreatesFile(t *testing.T) {
 		SoftwareQualities: []string{"RELIABILITY", "SECURITY", "MAINTAINABILITY"},
 	}
 
-	saveConfig(cfg)
+	_ = saveConfig(cfg)
 
 	if _, err := os.Stat(tmpFile); os.IsNotExist(err) {
 		t.Errorf("Expected config file to be created at %s", tmpFile)
@@ -179,7 +179,7 @@ func TestSaveConfig_AndLoadConfig_RoundTripWithToken(t *testing.T) {
 		Token:             "squ_secret_token_abc123",
 	}
 
-	saveConfig(original)
+	_ = saveConfig(original)
 
 	loaded := loadConfig()
 
@@ -215,13 +215,13 @@ func TestConfig_EmptyTokenOmitsFromJSON(t *testing.T) {
 
 func TestIssue_SeverityMapping(t *testing.T) {
 	issue := Issue{
-		Key:      "test-key-123",
-		Rule:     "java:S1234",
-		Severity: "HIGH",
+		Key:       "test-key-123",
+		Rule:      "java:S1234",
+		Severity:  "HIGH",
 		Component: "test-project:src/Main.java",
-		Line:     42,
-		Message:  "Test issue message",
-		Status:   "OPEN",
+		Line:      42,
+		Message:   "Test issue message",
+		Status:    "OPEN",
 	}
 
 	if issue.Severity != "HIGH" {
@@ -234,9 +234,9 @@ func TestIssue_SeverityMapping(t *testing.T) {
 
 func TestIssue_Impacts(t *testing.T) {
 	issue := Issue{
-		Key:      "test-key-456",
-		Rule:     "java:S5678",
-		Severity: "MEDIUM",
+		Key:       "test-key-456",
+		Rule:      "java:S5678",
+		Severity:  "MEDIUM",
 		Component: "test-project:src/Test.java",
 		Impacts: []struct {
 			SoftwareQuality string `json:"softwareQuality"`

@@ -14,11 +14,11 @@
 ## Features
 
 - **Beautiful TUI** — Interactive terminal interface with arrow-key navigation and real-time progress
-- **Smart Pagination** — Automatically handles large SonarQube projects with hundreds of issues
+- **Smart Pagination** — Automatically handles large SonarQube projects with hundreds of issues (Note: SonarQube API has a strict 10,000 issue limit per search)
 - **Flexible Filtering** — Filter by impact severities (HIGH, MEDIUM, LOW) and software qualities (RELIABILITY, SECURITY, MAINTAINABILITY)
 - **Clean CSV Export** — Outputs structured CSV files organized by project folder
 - **Persistent Configuration** — JSON-based config saves your URL and projects between runs
-- **CLI Flags** — Full automation support for CI/CD pipelines with `--dry-run`, `--export`, `--quiet`
+- **CLI Flags** — Upcoming automation support for CI/CD pipelines with `--dry-run`, `--export`, `--quiet` (See [Next Release](next_release.md))
 - **Secure Token Handling** — Token stored in `.env`, never in config files
 
 ---
@@ -122,7 +122,7 @@ SonarSweep supports full command-line operation for automation and scripting:
 
 ## Configuration File
 
-SonarSweep stores configuration in `sonarsweep.json` in the same directory:
+SonarSweep stores configuration in `~/.config/sonarsweep/config.json`:
 
 ```json
 {

@@ -25,6 +25,7 @@ import (
 var VERSION = "dev"
 
 var configPath string
+var cliExportPath string
 
 var (
 	SONAR_URL                  string
@@ -68,11 +69,21 @@ func isValidURL(s string) bool {
 	return true
 }
 
-func loadConfig() Config {
-	path := "sonarsweep.json"
+func getConfigPath() string {
 	if configPath != "" {
-		path = configPath
+		return configPath
 	}
+	home, err := os.UserHomeDir()
+	if err == nil {
+		configDir := filepath.Join(home, ".config", "sonarsweep")
+		os.MkdirAll(configDir, 0700)
+		return filepath.Join(configDir, "config.json")
+	}
+	return "sonarsweep.json"
+}
+
+func loadConfig() Config {
+	path := getConfigPath()
 	file, err := os.Open(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -85,21 +96,20 @@ func loadConfig() Config {
 	if err := json.NewDecoder(file).Decode(&config); err != nil {
 		return defaultConfig
 	}
+	config.SonarURL = strings.TrimRight(config.SonarURL, "/")
 	if len(config.SoftwareQualities) == 0 {
 		config.SoftwareQualities = defaultConfig.SoftwareQualities
 	}
 	return config
 }
 
-func saveConfig(config Config) {
-	path := "sonarsweep.json"
-	if configPath != "" {
-		path = configPath
-	}
+func saveConfig(config Config) error {
+	path := getConfigPath()
 	data, err := json.MarshalIndent(config, "", "  ")
-	if err == nil {
-		os.WriteFile(path, data, 0644)
+	if err != nil {
+		return err
 	}
+	return os.WriteFile(path, data, 0600)
 }
 
 func printHelp() {
@@ -131,13 +141,13 @@ EXAMPLES:
   sonarsweep --quiet
 
 CONFIGURATION:
-  Configuration is stored in 'sonarsweep.json'. You can edit this file
+  Configuration is stored in '~/.config/sonarsweep/config.json' (fallback: 'sonarsweep.json'). You can edit this file
   directly or use the --add-project flag to add projects.
 
   The token (USER_TOKEN) must be stored in a .env file, saved in 
-  'sonarsweep.json', or entered securely in the TUI prompt.
+  the config file, or entered securely in the TUI prompt.
 
-  Default config location: ./sonarsweep.json
+  Default config location: ~/.config/sonarsweep/config.json
   Override with: --config /path/to/config.json
 `
 	fmt.Printf(helpText, VERSION)
@@ -195,21 +205,21 @@ var (
 			Bold(true)
 
 	selectedActionStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("46")).
-			Bold(true).
-			Background(lipgloss.Color("235")).
-			Padding(0, 1).
-			MarginRight(1)
+				Foreground(lipgloss.Color("46")).
+				Bold(true).
+				Background(lipgloss.Color("235")).
+				Padding(0, 1).
+				MarginRight(1)
 
 	unselectedActionStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("241"))
+				Foreground(lipgloss.Color("241"))
 
 	dangerActionStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("9")).
-			Bold(true).
-			Background(lipgloss.Color("235")).
-			Padding(0, 1).
-			MarginRight(1)
+				Foreground(lipgloss.Color("9")).
+				Bold(true).
+				Background(lipgloss.Color("235")).
+				Padding(0, 1).
+				MarginRight(1)
 )
 
 type item string
@@ -529,7 +539,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.urlError = ""
 				SONAR_URL = url
 				m.config.SonarURL = url
-				saveConfig(m.config)
+				if err := saveConfig(m.config); err != nil {
+					m.fetchErr = fmt.Errorf("failed to save config: %w", err)
+					m.state = stateError
+					return m, nil
+				}
 
 				if len(m.config.Projects) == 0 {
 					m.state = stateNewProject
@@ -555,7 +569,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 					m.newProjectError = ""
 					m.config.Projects = append(m.config.Projects, proj)
-					saveConfig(m.config)
+					if err := saveConfig(m.config); err != nil {
+					m.fetchErr = fmt.Errorf("failed to save config: %w", err)
+					m.state = stateError
+					return m, nil
+				}
 
 					last := len(availableProjects) - 1
 					if last >= 0 {
@@ -578,38 +596,42 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.token = m.tokenInput.Value()
 				if strings.TrimSpace(m.token) != "" {
 					m.config.Token = m.token
-					saveConfig(m.config)
+					if err := saveConfig(m.config); err != nil {
+					m.fetchErr = fmt.Errorf("failed to save config: %w", err)
+					m.state = stateError
+					return m, nil
+				}
 					m.state = stateProject
 				}
 				return m, nil
 			}
 
-	case stateProject:
-		if msg.Type == tea.KeyEnter {
-			if i, ok := m.projectList.SelectedItem().(item); ok {
-				if i == "+ Add New Project" {
-					m.state = stateNewProject
-					return m, nil
-				}
-				if i == "- Remove Project" {
-					m.removeProjectCursor = 0
-					m.state = stateRemoveProject
-					return m, nil
-				}
-				m.projectKey = string(i)
+		case stateProject:
+			if msg.Type == tea.KeyEnter {
+				if i, ok := m.projectList.SelectedItem().(item); ok {
+					if i == "+ Add New Project" {
+						m.state = stateNewProject
+						return m, nil
+					}
+					if i == "- Remove Project" {
+						m.removeProjectCursor = 0
+						m.state = stateRemoveProject
+						return m, nil
+					}
+					m.projectKey = string(i)
 
-				for i, sq := range availableSoftwareQualities {
-					for _, configSQ := range m.config.SoftwareQualities {
-						if sq == configSQ {
-							m.selectedQualities[i] = struct{}{}
-							break
+					for i, sq := range availableSoftwareQualities {
+						for _, configSQ := range m.config.SoftwareQualities {
+							if sq == configSQ {
+								m.selectedQualities[i] = struct{}{}
+								break
+							}
 						}
 					}
+					m.state = stateQualities
 				}
-				m.state = stateQualities
+				return m, nil
 			}
-			return m, nil
-		}
 
 		case stateQualities:
 			switch msg.String() {
@@ -667,7 +689,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "enter":
 				if len(m.config.Projects) > 0 {
 					m.config.Projects = append(m.config.Projects[:m.removeProjectCursor], m.config.Projects[m.removeProjectCursor+1:]...)
-					saveConfig(m.config)
+					if err := saveConfig(m.config); err != nil {
+					m.fetchErr = fmt.Errorf("failed to save config: %w", err)
+					m.state = stateError
+					return m, nil
+				}
 
 					availableProjects = []list.Item{}
 					for _, p := range m.config.Projects {
@@ -724,7 +750,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.issues = msg.issues
 			m.buildSummaryTable()
-			m.savedFile = exportToCSV(m.issues, m.projectKey)
+			var err error
+			m.savedFile, err = exportToCSV(m.issues, m.projectKey)
+			if err != nil {
+				m.fetchErr = fmt.Errorf("failed to save CSV: %w", err)
+				m.state = stateError
+				return m, nil
+			}
 			m.state = statePrompt
 			return m, nil
 		case spinner.TickMsg:
@@ -819,23 +851,30 @@ func (m *model) buildSummaryTable() {
 	m.summaryTable = t
 }
 
-func exportToCSV(issues []Issue, projectKey string) string {
-	dateStr := time.Now().Format("20060102")
+func exportToCSV(issues []Issue, projectKey string) (string, error) {
+	dateStr := time.Now().Format("20060102_150405")
 
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		homeDir = "."
+	var outputFilename string
+	if cliExportPath != "" {
+		outputFilename = cliExportPath
+	} else {
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			homeDir = "."
+		}
+
+		downloadsDir := filepath.Join(homeDir, "Downloads")
+		projectDir := filepath.Join(downloadsDir, projectKey)
+
+		if err := os.MkdirAll(projectDir, 0755); err != nil {
+			return "", fmt.Errorf("failed to create directory: %w", err)
+		}
+		outputFilename = filepath.Join(projectDir, fmt.Sprintf("sonarqube_issues_%s.csv", dateStr))
 	}
-
-	downloadsDir := filepath.Join(homeDir, "Downloads")
-	projectDir := filepath.Join(downloadsDir, projectKey)
-
-	os.MkdirAll(projectDir, os.ModePerm)
-	outputFilename := filepath.Join(projectDir, fmt.Sprintf("sonarqube_issues_%s.csv", dateStr))
 
 	file, err := os.Create(outputFilename)
 	if err != nil {
-		return ""
+		return "", fmt.Errorf("failed to create file: %w", err)
 	}
 	defer file.Close()
 
@@ -876,7 +915,7 @@ func exportToCSV(issues []Issue, projectKey string) string {
 		writer.Write(row)
 	}
 
-	return outputFilename
+	return outputFilename, nil
 }
 
 const asciiArt = `
@@ -1091,198 +1130,116 @@ func (m model) View() string {
 }
 
 func main() {
-	// Handle flags manually before using flag.Parse to avoid "flag not defined" errors
-	if len(os.Args) > 1 {
-		arg := os.Args[1]
+	var (
+		help         bool
+		version      bool
+		reset        bool
+		viewConfig   bool
+		listProjects bool
+		addProject   string
+		exportPath   string
+		dryRun       bool
+		quiet        bool
+	)
 
-		// --help or -h
-		if arg == "--help" || arg == "-h" {
-			printHelp()
-			os.Exit(0)
-		}
-
-		// --version or -v
-		if arg == "--version" || arg == "-v" {
-			fmt.Printf("SonarSweep v%s\n", VERSION)
-			os.Exit(0)
-		}
-
-		// --reset
-		if arg == "--reset" {
-			cfg := loadConfig()
-			cfg.SonarURL = ""
-			cfg.Projects = []string{}
-			saveConfig(cfg)
-			fmt.Println("Configuration reset successfully.")
-			os.Exit(0)
-		}
-
-		// --view-config
-		if arg == "--view-config" {
-			cfg := loadConfig()
-			data, _ := json.MarshalIndent(cfg, "", "  ")
-			fmt.Println(string(data))
-			os.Exit(0)
-		}
-
-		// --list-projects
-		if arg == "--list-projects" {
-			cfg := loadConfig()
-			if len(cfg.Projects) == 0 {
-				fmt.Println("No projects saved. Run the TUI to add projects.")
-			} else {
-				for _, p := range cfg.Projects {
-					fmt.Println(p)
-				}
-			}
-			os.Exit(0)
-		}
-
-		// --add-project <key>
-		if arg == "--add-project" {
-			if len(os.Args) < 3 {
-				fmt.Println("Error: --add-project requires a project key argument.")
-				fmt.Println("Usage: sonarsweep --add-project <project-key>")
-				os.Exit(1)
-			}
-			projKey := os.Args[2]
-			cfg := loadConfig()
-			// Check for duplicates
-			for _, p := range cfg.Projects {
-				if p == projKey {
-					fmt.Printf("Project '%s' already exists.\n", projKey)
-					os.Exit(0)
-				}
-			}
-			cfg.Projects = append(cfg.Projects, projKey)
-			saveConfig(cfg)
-			fmt.Printf("Project '%s' added successfully.\n", projKey)
-			os.Exit(0)
-		}
-
-		// --export <path>
-		if arg == "--export" {
-			if len(os.Args) < 3 {
-				fmt.Println("Error: --export requires a path argument.")
-				os.Exit(1)
-			}
-			fmt.Printf("CSV export path set to: %s\n", os.Args[2])
-			os.Exit(0)
-		}
-
-		// --dry-run
-		if arg == "--dry-run" {
-			fmt.Println("Dry-run mode: Fetching issues without exporting to CSV.")
-			fmt.Println("(Feature requires TUI token input in non-quiet mode)")
-			os.Exit(0)
-		}
-
-		// --quiet or -q
-		if arg == "--quiet" || arg == "-q" {
-			fmt.Println("Quiet mode: Headless run not fully implemented yet.")
-			os.Exit(0)
-		}
-
-		// Check for --config with value before calling flag.Parse
-		if arg == "--config" || arg == "-c" {
-			if len(os.Args) >= 3 {
-				configPath = os.Args[2]
-			}
-		}
-	}
-
-	// Initialize flag package for config path only
-	flag.CommandLine.Init(os.Args[0], flag.ContinueOnError)
+	flag.BoolVar(&help, "help", false, "Show this help message and exit")
+	flag.BoolVar(&help, "h", false, "Show this help message and exit (shorthand)")
+	flag.BoolVar(&version, "version", false, "Show version information and exit")
+	flag.BoolVar(&version, "v", false, "Show version information and exit (shorthand)")
+	flag.BoolVar(&reset, "reset", false, "Reset the saved URL and Projects from config")
+	flag.BoolVar(&viewConfig, "view-config", false, "Print current configuration and exit")
+	flag.BoolVar(&listProjects, "list-projects", false, "List all saved projects and exit")
+	flag.StringVar(&addProject, "add-project", "", "Add a project to the configuration")
+	flag.StringVar(&exportPath, "export", "", "Override the CSV export path")
+	flag.BoolVar(&dryRun, "dry-run", false, "Fetch issues but skip CSV export")
+	flag.BoolVar(&quiet, "quiet", false, "Run in headless mode (no TUI)")
+	flag.BoolVar(&quiet, "q", false, "Run in headless mode (no TUI) (shorthand)")
 	flag.StringVar(&configPath, "config", "", "Use a different configuration file")
 	flag.StringVar(&configPath, "c", "", "Use a different configuration file (shorthand)")
+
+	flag.Usage = printHelp
 	flag.Parse()
 
+	if help {
+		printHelp()
+		os.Exit(0)
+	}
+
+	if version {
+		fmt.Printf("SonarSweep v%s\n", VERSION)
+		os.Exit(0)
+	}
+
+	if reset {
+		cfg := loadConfig()
+		cfg.SonarURL = ""
+		cfg.Projects = []string{}
+		if err := saveConfig(cfg); err != nil {
+			fmt.Printf("Failed to reset config: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("Configuration reset successfully.")
+		os.Exit(0)
+	}
+
+	if viewConfig {
+		cfg := loadConfig()
+		data, _ := json.MarshalIndent(cfg, "", "  ")
+		fmt.Println(string(data))
+		os.Exit(0)
+	}
+
+	if listProjects {
+		cfg := loadConfig()
+		if len(cfg.Projects) == 0 {
+			fmt.Println("No projects saved. Run the TUI to add projects.")
+		} else {
+			for _, p := range cfg.Projects {
+				fmt.Println(p)
+			}
+		}
+		os.Exit(0)
+	}
+
+	if addProject != "" {
+		cfg := loadConfig()
+		for _, p := range cfg.Projects {
+			if p == addProject {
+				fmt.Printf("Project '%s' already exists.\n", addProject)
+				os.Exit(0)
+			}
+		}
+		cfg.Projects = append(cfg.Projects, addProject)
+		if err := saveConfig(cfg); err != nil {
+			fmt.Printf("Failed to save config: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Project '%s' added successfully.\n", addProject)
+		os.Exit(0)
+	}
+
+	if exportPath != "" {
+		fmt.Printf("CSV export path set to: %s\n", exportPath)
+		cliExportPath = exportPath
+		os.Exit(0)
+	}
+
+	if dryRun {
+		fmt.Println("Dry-run mode: Fetching issues without exporting to CSV.")
+		fmt.Println("(Feature requires TUI token input in non-quiet mode)")
+		os.Exit(0)
+	}
+
+	if quiet {
+		fmt.Println("Quiet mode: Headless run not fully implemented yet.")
+		os.Exit(0)
+	}
+
 	// No flags, proceed with TUI
-	godotenv.Load()
-	token := os.Getenv("USER_TOKEN")
-
-	config := loadConfig()
-	SONAR_URL = config.SonarURL
-	availableSoftwareQualities = defaultConfig.SoftwareQualities
-
-	if token == "" {
-		token = config.Token
-	}
-
-	for _, p := range config.Projects {
-		availableProjects = append(availableProjects, item(p))
-	}
-	if len(config.Projects) > 0 {
-		availableProjects = append(availableProjects, item("- Remove Project"), item("+ Add New Project"))
-	} else {
-		availableProjects = append(availableProjects, item("+ Add New Project"))
-	}
-
-	state := stateProject
-	if config.SonarURL == "" {
-		state = stateURL
-	} else if len(config.Projects) == 0 {
-		state = stateNewProject
-	} else if token == "" {
-		state = stateToken
-	}
-
-	ti := textinput.New()
-	ti.Placeholder = "Enter SonarQube Token"
-	ti.Focus()
-	ti.CharLimit = 156
-	ti.Width = 40
-	ti.EchoMode = textinput.EchoPassword
-	ti.EchoCharacter = '•'
-	ti.PromptStyle = highlightStyle
-	ti.TextStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
-
-	uiURL := textinput.New()
-	uiURL.Placeholder = "http://localhost:9000"
-	uiURL.Focus()
-	uiURL.CharLimit = 256
-	uiURL.Width = 50
-	uiURL.PromptStyle = highlightStyle
-	uiURL.TextStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
-
-	uiProj := textinput.New()
-	uiProj.Placeholder = "people-web-ppd"
-	uiProj.Focus()
-	uiProj.CharLimit = 256
-	uiProj.Width = 50
-	uiProj.PromptStyle = highlightStyle
-	uiProj.TextStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
-
-	delegate := list.NewDefaultDelegate()
-	delegate.Styles.SelectedTitle = delegate.Styles.SelectedTitle.Foreground(lipgloss.Color("212")).BorderLeftForeground(lipgloss.Color("212"))
-	delegate.Styles.SelectedDesc = delegate.Styles.SelectedDesc.Foreground(lipgloss.Color("212")).BorderLeftForeground(lipgloss.Color("212"))
-
-	pl := list.New(availableProjects, delegate, 0, 0)
-	pl.Title = "Select a project"
-	pl.SetShowTitle(false)
-	pl.SetShowStatusBar(false)
-	pl.SetFilteringEnabled(false)
-
-	s := spinner.New()
-	s.Spinner = spinner.Dot
-	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
-
-	m := model{
-		state:             state,
-		config:            config,
-		token:             token,
-		tokenInput:        ti,
-		urlInput:          uiURL,
-		newProjectInput:   uiProj,
-		projectList:       pl,
-		selectedQualities: make(map[int]struct{}),
-		isNewCodePeriod:   true,
-		spinner:           s,
-	}
-
+	m := initialModel()
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
-		fmt.Printf("Alas, there's been an error: %v", err)
+		fmt.Printf("Alas, there's been an error: %v\n", err)
 		os.Exit(1)
 	}
 }

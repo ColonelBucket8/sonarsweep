@@ -158,20 +158,6 @@ sonarsweep --view-config
 
 ---
 
-## Security
-
-**Your SonarQube token must never be committed to version control.**
-
-| What TO DO | What NOT TO DO |
-|------------|----------------|
-| ✅ Store token in `.env` file | ❌ Put token in `sonarsweep.json` |
-| ✅ Add `.env` to `.gitignore` | ❌ Commit `sonarsweep.json` with real URLs |
-| ✅ Use `--config` for alternate setups | ❌ Share config files with secrets |
-
-The `.env` file is already in `.gitignore` by default. If you accidentally commit secrets, rotate them immediately in SonarQube.
-
----
-
 ## Development
 
 ### Build

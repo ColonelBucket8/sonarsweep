@@ -286,80 +286,88 @@ type issuesFetchedMsg struct {
 	err    error
 }
 
+func fetchIssues(projectKey, token string, softwareQualities []string, isNewCodePeriod bool) ([]Issue, error) {
+	var allIssues []Issue
+	client := &http.Client{Timeout: 15 * time.Second}
+
+	p := 1
+	ps := 500
+
+	for {
+		req, err := http.NewRequest("GET", fmt.Sprintf("%s/api/issues/search", SONAR_URL), nil)
+		if err != nil {
+			return nil, err
+		}
+
+		q := req.URL.Query()
+		q.Add("componentKeys", projectKey)
+		q.Add("statuses", "OPEN,CONFIRMED")
+		q.Add("impactSeverities", "BLOCKER,HIGH,MEDIUM,LOW")
+		q.Add("impactSoftwareQualities", strings.Join(softwareQualities, ","))
+		if isNewCodePeriod {
+			q.Add("inNewCodePeriod", "true")
+		}
+		q.Add("p", strconv.Itoa(p))
+		q.Add("ps", strconv.Itoa(ps))
+		req.URL.RawQuery = q.Encode()
+
+		req.SetBasicAuth(token, "")
+
+		resp, err := client.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("network or connection issue: %w", err)
+		}
+		defer resp.Body.Close()
+
+		var data Response
+		if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+			return nil, fmt.Errorf("failed to decode response: %w", err)
+		}
+
+		if resp.StatusCode != 200 {
+			errMsg := resp.Status
+			if len(data.Errors) > 0 {
+				errMsg = data.Errors[0].Msg
+			}
+			if resp.StatusCode == 401 {
+				errMsg += "\nTip: This might be an invalid token or lack of permissions."
+			}
+			return nil, fmt.Errorf("failed to fetch issues (Status Code: %d)\nDetails: %s", resp.StatusCode, errMsg)
+		}
+
+		allIssues = append(allIssues, data.Issues...)
+
+		if len(data.Issues) == 0 || len(allIssues) >= data.Paging.Total {
+			break
+		}
+		p++
+	}
+
+	// Map modern impacts to the severity field, overriding legacy severities
+	for i := range allIssues {
+		impactSeverity := "LOW" // Fallback
+		for _, impact := range allIssues[i].Impacts {
+			for _, sq := range softwareQualities {
+				if impact.SoftwareQuality == sq {
+					impactSeverity = impact.Severity
+					goto FoundImpact
+				}
+			}
+		}
+	FoundImpact:
+		allIssues[i].Severity = impactSeverity
+	}
+
+	return allIssues, nil
+}
+
 func fetchIssuesCmd(projectKey, token string, softwareQualities []string, isNewCodePeriod bool) tea.Cmd {
 	return func() tea.Msg {
-		var allIssues []Issue
-		client := &http.Client{Timeout: 15 * time.Second}
-
-		p := 1
-		ps := 500
-
-		for {
-			req, err := http.NewRequest("GET", fmt.Sprintf("%s/api/issues/search", SONAR_URL), nil)
-			if err != nil {
-				return issuesFetchedMsg{err: err}
-			}
-
-			q := req.URL.Query()
-			q.Add("componentKeys", projectKey)
-			q.Add("statuses", "OPEN,CONFIRMED")
-			q.Add("impactSeverities", "BLOCKER,HIGH,MEDIUM,LOW")
-			q.Add("impactSoftwareQualities", strings.Join(softwareQualities, ","))
-			if isNewCodePeriod {
-				q.Add("inNewCodePeriod", "true")
-			}
-			q.Add("p", strconv.Itoa(p))
-			q.Add("ps", strconv.Itoa(ps))
-			req.URL.RawQuery = q.Encode()
-
-			req.SetBasicAuth(token, "")
-
-			resp, err := client.Do(req)
-			if err != nil {
-				return issuesFetchedMsg{err: fmt.Errorf("network or connection issue: %w", err)}
-			}
-			defer resp.Body.Close()
-
-			var data Response
-			if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
-				return issuesFetchedMsg{err: fmt.Errorf("failed to decode response: %w", err)}
-			}
-
-			if resp.StatusCode != 200 {
-				errMsg := resp.Status
-				if len(data.Errors) > 0 {
-					errMsg = data.Errors[0].Msg
-				}
-				if resp.StatusCode == 401 {
-					errMsg += "\nTip: This might be an invalid token or lack of permissions."
-				}
-				return issuesFetchedMsg{err: fmt.Errorf("failed to fetch issues (Status Code: %d)\nDetails: %s", resp.StatusCode, errMsg)}
-			}
-
-			allIssues = append(allIssues, data.Issues...)
-
-			if len(data.Issues) == 0 || len(allIssues) >= data.Paging.Total {
-				break
-			}
-			p++
+		issues, err := fetchIssues(projectKey, token, softwareQualities, isNewCodePeriod)
+		if err != nil {
+			return issuesFetchedMsg{err: err}
 		}
-
-		// Map modern impacts to the severity field, overriding legacy severities
-		for i := range allIssues {
-			impactSeverity := "LOW" // Fallback
-			for _, impact := range allIssues[i].Impacts {
-				for _, sq := range softwareQualities {
-					if impact.SoftwareQuality == sq {
-						impactSeverity = impact.Severity
-						goto FoundImpact
-					}
-				}
-			}
-		FoundImpact:
-			allIssues[i].Severity = impactSeverity
-		}
-
-		return issuesFetchedMsg{issues: allIssues, err: nil}
+		return issuesFetchedMsg{issues: issues, err: nil}
 	}
 }
 
@@ -1201,37 +1209,113 @@ func main() {
 		os.Exit(0)
 	}
 
+	isHeadless := quiet || dryRun || exportPath != ""
+
 	if addProject != "" {
 		cfg := loadConfig()
+		exists := false
 		for _, p := range cfg.Projects {
 			if p == addProject {
-				fmt.Printf("Project '%s' already exists.\n", addProject)
-				os.Exit(0)
+				exists = true
+				break
 			}
 		}
-		cfg.Projects = append(cfg.Projects, addProject)
-		if err := saveConfig(cfg); err != nil {
-			fmt.Printf("Failed to save config: %v\n", err)
+		if !exists {
+			cfg.Projects = append(cfg.Projects, addProject)
+			if err := saveConfig(cfg); err != nil {
+				if !quiet {
+					fmt.Printf("Failed to save config: %v\n", err)
+				}
+				os.Exit(1)
+			}
+			if !quiet && !isHeadless {
+				fmt.Printf("Project '%s' added successfully.\n", addProject)
+			}
+		} else if !quiet && !isHeadless {
+			fmt.Printf("Project '%s' already exists.\n", addProject)
+		}
+
+		if !isHeadless {
+			os.Exit(0)
+		}
+	}
+
+	if isHeadless {
+		godotenv.Load()
+		cfg := loadConfig()
+
+		if cfg.SonarURL == "" {
+			if !quiet {
+				fmt.Fprintln(os.Stderr, "Error: SonarQube URL is not configured. Run the TUI first to set it.")
+			}
 			os.Exit(1)
 		}
-		fmt.Printf("Project '%s' added successfully.\n", addProject)
-		os.Exit(0)
-	}
+		SONAR_URL = cfg.SonarURL
 
-	if exportPath != "" {
-		fmt.Printf("CSV export path set to: %s\n", exportPath)
-		cliExportPath = exportPath
-		os.Exit(0)
-	}
+		token := os.Getenv("USER_TOKEN")
+		if token == "" {
+			token = cfg.Token
+		}
+		if token == "" {
+			if !quiet {
+				fmt.Fprintln(os.Stderr, "Error: Authentication token is missing. Set USER_TOKEN env var or run the TUI to save it.")
+			}
+			os.Exit(1)
+		}
 
-	if dryRun {
-		fmt.Println("Dry-run mode: Fetching issues without exporting to CSV.")
-		fmt.Println("(Feature requires TUI token input in non-quiet mode)")
-		os.Exit(0)
-	}
+		projectKey := addProject
+		if projectKey == "" {
+			if len(cfg.Projects) == 0 {
+				if !quiet {
+					fmt.Fprintln(os.Stderr, "Error: No projects configured. Use --add-project <key> to specify one.")
+				}
+				os.Exit(1)
+			}
+			projectKey = cfg.Projects[0]
+		}
 
-	if quiet {
-		fmt.Println("Quiet mode: Headless run not fully implemented yet.")
+		if exportPath != "" {
+			cliExportPath = exportPath
+		}
+
+		if !quiet {
+			fmt.Printf("Fetching issues for project: %s\n", projectKey)
+		}
+
+		issues, err := fetchIssues(projectKey, token, cfg.SoftwareQualities, true)
+		if err != nil {
+			if !quiet {
+				fmt.Fprintf(os.Stderr, "Error fetching issues: %v\n", err)
+			}
+			os.Exit(1)
+		}
+
+		if dryRun {
+			if !quiet {
+				severityCounts := map[string]int{"HIGH": 0, "MEDIUM": 0, "LOW": 0}
+				for _, issue := range issues {
+					severityCounts[issue.Severity]++
+				}
+				fmt.Println("\nDry Run Summary:")
+				fmt.Printf("Total Issues: %d\n", len(issues))
+				fmt.Printf("HIGH:   %d\n", severityCounts["HIGH"])
+				fmt.Printf("MEDIUM: %d\n", severityCounts["MEDIUM"])
+				fmt.Printf("LOW:    %d\n", severityCounts["LOW"])
+			}
+			os.Exit(0)
+		}
+
+		savedFile, err := exportToCSV(issues, projectKey)
+		if err != nil {
+			if !quiet {
+				fmt.Fprintf(os.Stderr, "Error exporting CSV: %v\n", err)
+			}
+			os.Exit(1)
+		}
+
+		if !quiet {
+			fmt.Printf("Export complete! Data saved to: %s\n", savedFile)
+		}
 		os.Exit(0)
 	}
 

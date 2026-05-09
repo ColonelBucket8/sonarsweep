@@ -75,7 +75,7 @@ jobs:
         run: |
           ext=""
           if [ "$GOOS" = "windows" ]; then ext=".exe"; fi
-          go build -ldflags="-s -w -X main.VERSION=${{ github.ref_name }}" -o sonarsweep${ext} main.go
+          go build -ldflags="-s -w -X main.VERSION=${{ github.ref_name }}" -o sonarsweep${ext} .
 
       - name: Package
         shell: bash

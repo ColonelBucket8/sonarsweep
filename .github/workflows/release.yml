@@ -184,17 +184,39 @@ jobs:
 
           cd homebrew-tap
 
-          echo "=== Contents of sonarsweep.rb before sed ==="
-          cat sonarsweep.rb
+          cat > sonarsweep.rb <<EOF
+          class Sonarsweep < Formula
+            desc "SonarQube Issue Exporter - Fetch issues to CSV beautifully"
+            homepage "https://github.com/ariffrahimin/sonarsweep"
+            version "${VERSION#v}"
 
-          sed -i \
-            -e "s|SHA256_DARWIN_ARM64_PLACEHOLDER|$SHA_DARWIN_ARM64|" \
-            -e "s|SHA256_DARWIN_AMD64_PLACEHOLDER|$SHA_DARWIN_AMD64|" \
-            -e "s|SHA256_LINUX_AMD64_PLACEHOLDER|$SHA_LINUX|" \
-            -e "s|VERSION_PLACEHOLDER|${VERSION#v}|g" \
-            sonarsweep.rb
+            on_macos do
+              on_arm do
+                url "https://github.com/ariffrahimin/sonarsweep/releases/download/${VERSION}/sonarsweep-darwin-arm64.tar.gz"
+                sha256 "$SHA_DARWIN_ARM64"
+              end
+              on_intel do
+                url "https://github.com/ariffrahimin/sonarsweep/releases/download/${VERSION}/sonarsweep-darwin-amd64.tar.gz"
+                sha256 "$SHA_DARWIN_AMD64"
+              end
+            end
 
-          echo "=== Contents of sonarsweep.rb after sed ==="
+            on_linux do
+              url "https://github.com/ariffrahimin/sonarsweep/releases/download/${VERSION}/sonarsweep-linux-amd64.tar.gz"
+              sha256 "$SHA_LINUX"
+            end
+
+            def install
+              bin.install "sonarsweep"
+            end
+
+            test do
+              system "#{bin}/sonarsweep", "--version"
+            end
+          end
+          EOF
+
+          echo "=== Generated sonarsweep.rb ==="
           cat sonarsweep.rb
 
           git config user.name "GitHub Actions"

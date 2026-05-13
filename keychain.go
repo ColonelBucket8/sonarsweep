@@ -14,17 +14,15 @@ const (
 )
 
 func StoreToken(token string) error {
-	existing, _ := GetToken()
-	if existing != "" {
-		item := keychain.NewGenericPassword(keychainService, keychainAccount, keychainLabel, []byte(token), "")
-		err := keychain.UpdateItem(item, item)
-		if err != nil {
-			return fmt.Errorf("failed to update token in keychain: %w", err)
-		}
-		return nil
-	}
+	item := keychain.NewItem()
+	item.SetService(keychainService)
+	item.SetAccount(keychainAccount)
+	item.SetLabel(keychainLabel)
+	item.SetData([]byte(token))
+	item.SetAccessible(keychain.AccessibleWhenUnlocked)
 
-	item := keychain.NewGenericPassword(keychainService, keychainAccount, keychainLabel, []byte(token), "")
+	keychain.DeleteItem(item)
+
 	err := keychain.AddItem(item)
 	if err != nil {
 		return fmt.Errorf("failed to store token in keychain: %w", err)
@@ -33,9 +31,9 @@ func StoreToken(token string) error {
 }
 
 func GetToken() (string, error) {
-	data, err := keychain.GetGenericPassword(keychainService, keychainAccount, "", "")
+	data, err := keychain.GetGenericPassword(keychainService, keychainAccount, keychainLabel, "")
 	if err != nil {
-		if strings.Contains(err.Error(), "Item not found") {
+		if strings.Contains(err.Error(), "Item not found") || strings.Contains(err.Error(), "secItemNotFound") {
 			return "", nil
 		}
 		return "", fmt.Errorf("failed to get token from keychain: %w", err)
@@ -46,11 +44,10 @@ func GetToken() (string, error) {
 func DeleteToken() error {
 	err := keychain.DeleteGenericPasswordItem(keychainService, keychainAccount)
 	if err != nil {
-		if strings.Contains(err.Error(), "Item not found") {
+		if strings.Contains(err.Error(), "Item not found") || strings.Contains(err.Error(), "secItemNotFound") {
 			return nil
 		}
 		return fmt.Errorf("failed to delete token from keychain: %w", err)
 	}
 	return nil
 }
-

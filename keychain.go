@@ -2,52 +2,41 @@ package main
 
 import (
 	"fmt"
-	"strings"
 
-	"github.com/keybase/go-keychain"
+	"github.com/zalando/go-keyring"
 )
 
 const (
 	keychainService = "sonarsweep"
 	keychainAccount = "user_token"
-	keychainLabel   = "SonarSweep User Token"
 )
 
 func StoreToken(token string) error {
-	item := keychain.NewItem()
-	item.SetService(keychainService)
-	item.SetAccount(keychainAccount)
-	item.SetLabel(keychainLabel)
-	item.SetData([]byte(token))
-	item.SetAccessible(keychain.AccessibleWhenUnlocked)
-
-	keychain.DeleteItem(item)
-
-	err := keychain.AddItem(item)
+	err := keyring.Set(keychainService, keychainAccount, token)
 	if err != nil {
-		return fmt.Errorf("failed to store token in keychain: %w", err)
+		return fmt.Errorf("failed to store token: %w", err)
 	}
 	return nil
 }
 
 func GetToken() (string, error) {
-	data, err := keychain.GetGenericPassword(keychainService, keychainAccount, keychainLabel, "")
+	token, err := keyring.Get(keychainService, keychainAccount)
 	if err != nil {
-		if strings.Contains(err.Error(), "Item not found") || strings.Contains(err.Error(), "secItemNotFound") {
+		if err == keyring.ErrNotFound {
 			return "", nil
 		}
-		return "", fmt.Errorf("failed to get token from keychain: %w", err)
+		return "", fmt.Errorf("failed to get token: %w", err)
 	}
-	return string(data), nil
+	return token, nil
 }
 
 func DeleteToken() error {
-	err := keychain.DeleteGenericPasswordItem(keychainService, keychainAccount)
+	err := keyring.Delete(keychainService, keychainAccount)
 	if err != nil {
-		if strings.Contains(err.Error(), "Item not found") || strings.Contains(err.Error(), "secItemNotFound") {
+		if err == keyring.ErrNotFound {
 			return nil
 		}
-		return fmt.Errorf("failed to delete token from keychain: %w", err)
+		return fmt.Errorf("failed to delete token: %w", err)
 	}
 	return nil
 }
